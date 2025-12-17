@@ -20,6 +20,8 @@ import {
 import { RevcordEmbed } from "./util/embeds";
 import { checkWebhookPermissions } from "./util/permissions";
 import { truncate } from "./util/truncate";
+import { createFileUploader } from "./util/fileUpload";
+import { loadImageUploadConfig } from "./util/config";
 
 /**
  * This file contains code taking care of things from Discord to Revolt
@@ -265,18 +267,61 @@ export async function handleDiscordMessage(
       let stickerUrl = sticker && sticker.url;
 
       // Format message content (parse emojis, mentions, images etc.)
-      const messageString = formatMessage(
+      let messageString = formatMessage(
         message.attachments,
         message.content,
         message.mentions,
         stickerUrl
       );
 
+      // NEW: Handle image uploads to Revolt
+      const imageUploadConfig = loadImageUploadConfig();
+      const attachmentIds: string[] = [];
+      let hasUploadErrors = false;
+
+      if (message.attachments.size > 0 && imageUploadConfig.enabled) {
+        try {
+          const fileUploader = createFileUploader();
+          
+          for (const attachment of message.attachments.values()) {
+            if (attachment.contentType?.startsWith('image/')) {
+              npmlog.info('Discord', `🖼️ Uploading image: ${attachment.name} (${(attachment.size / 1024 / 1024).toFixed(1)}MB)`);
+              
+              const uploadResult = await fileUploader.uploadDiscordImageToRevolt(
+                attachment.url,
+                attachment.name,
+                attachment.contentType
+              );
+
+              if (uploadResult.success && uploadResult.fileId) {
+                attachmentIds.push(uploadResult.fileId);
+                npmlog.info('Discord', `✅ Image uploaded: ${attachment.name} -> ${uploadResult.fileId}`);
+              } else {
+                npmlog.warn('Discord', `❌ Image upload failed: ${attachment.name} - ${uploadResult.error}`);
+                hasUploadErrors = true;
+                
+                // Add URL fallback to message if enabled
+                if (imageUploadConfig.fallbackToUrl) {
+                  messageString += `\n📎 ${attachment.name}: ${attachment.url}`;
+                }
+              }
+            } else {
+              // Non-image files: always use URL
+              messageString += `\n📎 ${attachment.name}: ${attachment.url}`;
+            }
+          }
+        } catch (error) {
+          npmlog.error('Discord', 'Error during image upload process:', error);
+          hasUploadErrors = true;
+        }
+      }
+
       // Prepare message object
       // revolt.js doesn't support masquerade yet, but we can use them using this messy trick.
       const messageObject = {
         content: truncate(messageString, 1984),
         masquerade: mask,
+        attachments: attachmentIds.length > 0 ? attachmentIds : undefined, // NEW: Add uploaded files
         replies: replyPing
           ? [
               {

@@ -24,6 +24,8 @@
 - [x] Bridge embeds
 - [x] Bridge emoji[^1]
 - [x] Seamlessly display user information
+- [x] Clone entire Discord servers to Revolt
+- [x] Copy message history between platforms
 
 [^1]: Revolt to Discord works, but limited to 3 emojis displayed to stop bombing with links. Animated emojis from Revolt will convert to static due to limits on Revolt's image backend
 
@@ -167,6 +169,46 @@ rc!connections
 You can toggle whether messages sent by bots should be forwarded. It's enabled by default (it's requied for NQN to work properly).
 
 Use either `rc!bots` or `/bots`
+
+### Cloning an entire Discord server
+
+You can clone an entire Discord server structure to Revolt, including all channels and optionally message history!
+
+From **Discord**:
+
+```
+/clone <Revolt server ID> [copy_history: true/false] [max_messages: 100] [preview: true/false]
+```
+
+From **Revolt**:
+
+```
+rc!clone <Discord server ID> [--history] [--max=100] [--preview]
+```
+
+**Important notes:**
+- You need Administrator permissions on Discord or be the server owner on Revolt
+- The bot must be a member of both servers
+- Use `preview: true` or `--preview` to see what would be cloned without actually doing it
+- Copying message history can take a very long time (use `max_messages` to limit)
+- Channels will be automatically bridged after cloning
+- Rate limiting is applied to avoid overwhelming the APIs
+
+**Examples:**
+
+```
+# Preview what would be cloned (from Discord)
+/clone revolt_server_id preview:true
+
+# Clone channels without history (from Discord)
+/clone 01AB23BC34CD56DE78ZX90WWDB copy_history:false
+
+# Clone with last 50 messages per channel (from Revolt)
+rc!clone 123456789012345678 --history --max=50
+
+# Just preview (from Revolt)
+rc!clone 123456789012345678 --preview
+```
 
 ### with mappings.json (not recommended)
 

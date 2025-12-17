@@ -21,6 +21,20 @@ export default class UniversalExecutor {
   constructor(private discord: DiscordClient, private revolt: RevoltClient) {}
 
   /**
+   * Get Discord client (for advanced operations like cloning)
+   */
+  getDiscordClient(): DiscordClient {
+    return this.discord;
+  }
+
+  /**
+   * Get Revolt client (for advanced operations like cloning)
+   */
+  getRevoltClient(): RevoltClient {
+    return this.revolt;
+  }
+
+  /**
    * Create a new bridge
    * @param discordTarget Discord channel name or id
    * @param revoltTarget Revolt channel name or id

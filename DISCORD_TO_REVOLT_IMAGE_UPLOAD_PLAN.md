@@ -631,4 +631,105 @@ The **hardest part is done!** API research and testing is complete. Now it's jus
 
 ---
 
+## 🐛 Phase 3: Debugging and Testing
+
+### Phase 3.1: Fix FormData API Issue
+**Status**: ✅ COMPLETE
+**Description**: Fixed 400 Bad Request error caused by incorrect FormData usage
+
+**🔍 Issues Found**:
+- Node.js `form-data` package incompatible with `undici` `fetch`
+- TypeScript errors with JSON response parsing
+- Need consistent FormData implementation
+
+**🔧 Solution Applied**:
+```typescript
+// Fixed imports
+import { fetch, FormData } from 'undici';
+
+// Fixed FormData usage
+const formData = new FormData();
+const fileBuffer = Buffer.from(buffer);
+formData.append('file', fileBuffer, filename);
+
+// Proper TypeScript interfaces
+interface RevoltUploadResponse {
+  id: string;
+}
+const result = await response.json() as RevoltUploadResponse;
+```
+
+**✅ Result**: 
+- Build successful ✅
+- TypeScript errors resolved ✅  
+- Ready for testing ✅
+
+### Phase 3.2: Fix Blob Type Error  
+**Status**: ✅ COMPLETE
+**Description**: Fixed "parameter 2 is not of type 'Blob'" error
+
+**🔍 Issue Found**:
+- `undici`'s FormData follows web standards and expects Blob objects
+- Node.js Buffer not compatible with web-standard FormData
+- ArrayBuffer needs proper conversion to Blob
+
+**🔧 Solution Applied**:
+```typescript
+// Fixed Blob creation from ArrayBuffer
+const formData = new FormData();
+const uint8Array = new Uint8Array(buffer);
+const blob = new Blob([uint8Array], { type: contentType });
+formData.append('file', blob, filename);
+```
+
+**✅ Result**: 
+- TypeScript compilation successful ✅
+- Proper web-standard Blob usage ✅
+- Ready for testing ✅
+
+### Phase 3.3: Fix Duplicate URLs Issue
+**Status**: ✅ COMPLETE
+**Description**: Fixed duplicate content where both uploaded images AND Discord URLs appeared
+
+**🔍 Issue Found**:
+- `formatMessage` called with ALL attachments before upload processing
+- Successfully uploaded images still had their URLs included in message text
+- Result: Both native Revolt attachment + Discord URL shown
+
+**🔧 Solution Applied**:
+```typescript
+// NEW: Process uploads first, track failed attachments
+const failedAttachments = new Collection<string, Attachment>();
+
+for (const attachment of message.attachments.values()) {
+  if (uploadSuccess) {
+    // Don't add to failedAttachments - won't appear as URL
+  } else {
+    // Add to failedAttachments - will appear as URL fallback
+    failedAttachments.set(attachment.id, attachment);
+  }
+}
+
+// THEN: Format message with only failed attachments
+let messageString = formatMessage(
+  failedAttachments, // Only URLs for failed uploads
+  message.content,
+  message.mentions,
+  stickerUrl
+);
+```
+
+**✅ Result**:
+- Successfully uploaded images: Show as native Revolt attachments ✅
+- Failed upload images: Show as Discord URLs (if fallback enabled) ✅  
+- No more duplicates ✅
+
+### Phase 3.4: Feature Complete
+**Status**: ✅ COMPLETE
+**Description**: Discord→Revolt image upload feature fully implemented and tested
+
+**🎉 Final Status**: All major issues resolved, feature working as intended
+
+---
+
 **Happy coding! 🚀**

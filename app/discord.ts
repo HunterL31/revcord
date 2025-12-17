@@ -266,17 +266,10 @@ export async function handleDiscordMessage(
       const sticker = message.stickers.first();
       let stickerUrl = sticker && sticker.url;
 
-      // Format message content (parse emojis, mentions, images etc.)
-      let messageString = formatMessage(
-        message.attachments,
-        message.content,
-        message.mentions,
-        stickerUrl
-      );
-
-      // NEW: Handle image uploads to Revolt
+      // NEW: Handle image uploads to Revolt first
       const imageUploadConfig = loadImageUploadConfig();
       const attachmentIds: string[] = [];
+      const failedAttachments = new Collection<string, Attachment>();
       let hasUploadErrors = false;
 
       if (message.attachments.size > 0 && imageUploadConfig.enabled) {
@@ -296,25 +289,39 @@ export async function handleDiscordMessage(
               if (uploadResult.success && uploadResult.fileId) {
                 attachmentIds.push(uploadResult.fileId);
                 npmlog.info('Discord', `✅ Image uploaded: ${attachment.name} -> ${uploadResult.fileId}`);
+                // Successfully uploaded - don't add to failedAttachments
               } else {
                 npmlog.warn('Discord', `❌ Image upload failed: ${attachment.name} - ${uploadResult.error}`);
                 hasUploadErrors = true;
                 
-                // Add URL fallback to message if enabled
+                // Add failed uploads to collection if fallback enabled
                 if (imageUploadConfig.fallbackToUrl) {
-                  messageString += `\n📎 ${attachment.name}: ${attachment.url}`;
+                  failedAttachments.set(attachment.id, attachment);
                 }
               }
             } else {
-              // Non-image files: always use URL
-              messageString += `\n📎 ${attachment.name}: ${attachment.url}`;
+              // Non-image files: always add to failed collection so URLs are shown
+              failedAttachments.set(attachment.id, attachment);
             }
           }
         } catch (error) {
           npmlog.error('Discord', 'Error during image upload process:', error);
+          // On error, add all attachments to failed collection
+          message.attachments.forEach((att) => failedAttachments.set(att.id, att));
           hasUploadErrors = true;
         }
+      } else {
+        // If upload disabled or no attachments, all attachments become URLs
+        message.attachments.forEach((att) => failedAttachments.set(att.id, att));
       }
+
+      // Format message content (parse emojis, mentions, and only failed/non-image attachments)
+      let messageString = formatMessage(
+        failedAttachments,
+        message.content,
+        message.mentions,
+        stickerUrl
+      );
 
       // Prepare message object
       // revolt.js doesn't support masquerade yet, but we can use them using this messy trick.

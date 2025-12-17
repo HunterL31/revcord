@@ -1,9 +1,6 @@
-import FormData from 'form-data';
 import { Client as RevoltClient } from 'revolt.js';
 import npmlog from 'npmlog';
-
-// Use global fetch (available in Node 18+)
-declare const fetch: typeof globalThis.fetch;
+import { fetch, FormData } from 'undici';
 
 interface UploadResult {
   success: boolean;
@@ -17,6 +14,10 @@ interface UploadConfig {
   timeoutMs: number;
   autumnUrl: string;
   botToken: string;
+}
+
+interface RevoltUploadResponse {
+  id: string;
 }
 
 export class FileUploader {
@@ -67,26 +68,26 @@ export class FileUploader {
 
   private async uploadToRevoltAPI(buffer: ArrayBuffer, filename: string, contentType: string) {
     const formData = new FormData();
-    formData.append('file', Buffer.from(buffer), {
-      filename,
-      contentType
-    });
+    const uint8Array = new Uint8Array(buffer);
+    const blob = new Blob([uint8Array], { type: contentType });
+    formData.append('file', blob, filename);
 
     const response = await fetch(`${this.config.autumnUrl}/attachments`, {
       method: 'POST',
       headers: {
         'x-bot-token': this.config.botToken,
-        ...formData.getHeaders()
+        // Don't set Content-Type manually - let fetch handle multipart boundary
       },
       body: formData,
       signal: AbortSignal.timeout(this.config.timeoutMs)
     });
 
     if (!response.ok) {
-      throw new Error(`Revolt upload failed: ${response.status} ${response.statusText}`);
+      const errorText = await response.text().catch(() => 'Unknown error');
+      throw new Error(`Revolt upload failed: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
-    const result = await response.json();
+    const result = await response.json() as RevoltUploadResponse;
     if (!result.id) {
       throw new Error('Upload response missing file ID');
     }

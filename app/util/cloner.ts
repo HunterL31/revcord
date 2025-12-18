@@ -221,8 +221,8 @@ export async function cloneChannelStructure(
           progress.errors.push(errorMsg);
         }
 
-        // Rate limiting: small delay between channels
-        await delay(1000);
+        // Small delay between channels for progress updates
+        await delay(100);
       }
     }
 
@@ -281,8 +281,8 @@ async function copyChannelHistory(
       fetchCount += batch.size;
       lastId = batch.last()?.id;
 
-      // Rate limiting
-      await delay(500);
+      // Discord rate limiting: ~8 req/sec (safe margin under 10/sec limit)
+      await delay(120);
     }
 
     // Reverse to get chronological order
@@ -341,8 +341,8 @@ async function copyChannelHistory(
                   }
                 }
                 
-                // Rate limiting for uploads
-                await delay(500);
+                // Conservative delay for image uploads (unknown Revolt limits)
+                await delay(200);
               } catch (error) {
                 npmlog.warn('Cloner', `Image upload error for ${attachment.name}: ${error.message}`);
                 if (imageUploadConfig.fallbackToUrl) {
@@ -364,24 +364,41 @@ async function copyChannelHistory(
         // Skip empty messages with no content or attachments
         if (!content.trim() && attachmentIds.length === 0) continue;
 
-        // Send to Revolt with masquerade and attachments
-        await revoltChannel.sendMessage({
-          content: content.substring(0, 2000), // Revolt's message limit
-          attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
-          masquerade: {
-            name: `${message.author.username}${
-              message.author.discriminator !== "0"
-                ? "#" + message.author.discriminator
-                : ""
-            }`,
-            avatar: message.author.avatarURL() || undefined,
-          },
-        } as any);
+        // Send to Revolt with masquerade and attachments (with retry on 429)
+        let retryCount = 0;
+        const maxRetries = 5;
+        
+        while (retryCount <= maxRetries) {
+          try {
+            await revoltChannel.sendMessage({
+              content: content.substring(0, 2000), // Revolt's message limit
+              attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
+              masquerade: {
+                name: `${message.author.username}${
+                  message.author.discriminator !== "0"
+                    ? "#" + message.author.discriminator
+                    : ""
+                }`,
+                avatar: message.author.avatarURL() || undefined,
+              },
+            } as any);
+            break; // Success - exit retry loop
+          } catch (error) {
+            if (error.message.includes('429') && retryCount < maxRetries) {
+              retryCount++;
+              const backoffDelay = 1000 * retryCount; // Exponential backoff
+              npmlog.warn('Cloner', `Rate limited, retrying in ${backoffDelay}ms (attempt ${retryCount}/${maxRetries})`);
+              await delay(backoffDelay);
+            } else {
+              throw error; // Re-throw if not 429 or max retries exceeded
+            }
+          }
+        }
 
         copiedCount++;
 
-        // Rate limiting to avoid overwhelming Revolt API
-        await delay(1000);
+        // Revolt rate limiting: 100 messages per 10 seconds = 10 msg/sec = 100ms delay
+        await delay(100);
       } catch (error) {
         npmlog.warn(
           "Cloner",

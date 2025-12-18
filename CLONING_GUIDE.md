@@ -7,6 +7,7 @@ The bot now supports cloning entire Discord servers to Revolt! This powerful fea
 - 🔍 **Scan** all text channels in a Discord server
 - 📋 **Clone** the channel structure to a Revolt server
 - 📜 **Copy** message history from Discord to Revolt
+- 🖼️ **Upload** Discord images natively to Revolt (no more broken links!)
 - 🔗 **Bridge** channels automatically for real-time syncing
 
 ## Requirements
@@ -15,6 +16,7 @@ The bot now supports cloning entire Discord servers to Revolt! This powerful fea
 - The bot must be a member of both servers
 - The Revolt server must already exist
 - Proper permissions for the bot on both platforms (see main README)
+- **For image uploads**: Set `UPLOAD_IMAGES_TO_REVOLT=true` in your `.env` file
 
 ## Commands
 
@@ -42,6 +44,29 @@ rc!clone <discord_server_id> [--history] [--max=100] [--preview]
 - `--max=N` (optional): Maximum messages to copy per channel (default: 100)
 - `--preview` (optional): Preview what would be cloned without actually cloning
 
+## Image Upload Configuration
+
+To enable native image uploads during cloning (recommended):
+
+```bash
+# Add to your .env file
+UPLOAD_IMAGES_TO_REVOLT=true
+MAX_IMAGE_SIZE_MB=10
+IMAGE_UPLOAD_TIMEOUT_MS=30000
+FALLBACK_TO_URL_ON_ERROR=true
+SUPPORTED_IMAGE_FORMATS=jpeg,jpg,png,gif,webp
+```
+
+**Benefits of enabling image uploads:**
+- Images appear natively in Revolt (better user experience)
+- Images won't break if Discord links expire
+- No authentication issues for viewing images
+
+**What happens without image uploads:**
+- All attachments appear as clickable URLs
+- Users must click links to view images
+- Links may expire over time
+
 ## How It Works
 
 ### 1. Channel Scanning
@@ -55,20 +80,29 @@ For each Discord channel found:
 - If not, creates a new channel with the same name and description
 - Preserves channel topics as descriptions
 
-### 3. Channel Bridging
+### 3. Message History Copying (Optional)
+
+If `copy_history` is enabled:
+- Downloads messages from Discord channels in chronological order
+- **Images are uploaded natively** to Revolt (if `UPLOAD_IMAGES_TO_REVOLT=true`)
+- Non-image attachments fallback to URL links
+- Rate-limited to avoid overwhelming the APIs
+
+### 4. Channel Bridging
 
 After creating channels:
 - Automatically creates a mapping between Discord and Revolt channels
 - Sets up webhooks for Discord channels
 - Enables real-time message bridging (bi-directional)
 
-### 4. History Copying (Optional)
+### 5. History Copying (Optional)
 
 If enabled:
 - Fetches the specified number of messages from each Discord channel
 - Copies them to the corresponding Revolt channel in chronological order
 - Preserves author information using masquerade
-- Includes attachments as URLs
+- **Uploads images natively** to Revolt (if image uploads enabled)
+- Non-image attachments included as URLs
 - Skips bot messages for cleaner history
 
 ## Examples

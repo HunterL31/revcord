@@ -6,6 +6,7 @@ import {
   CategoryChannel,
   ChannelType,
   GuildChannel,
+  Attachment,
 } from "discord.js";
 import { Client as RevoltClient } from "revolt.js";
 import { Channel as RevoltChannel } from "revolt.js/dist/maps/Channels";
@@ -14,6 +15,8 @@ import npmlog from "npmlog";
 import { Main } from "../Main";
 import { initiateDiscordChannel } from "../discord";
 import { MappingModel } from "../models/Mapping";
+import { createFileUploader } from "./fileUpload";
+import { loadImageUploadConfig } from "./config";
 
 export interface CloneProgress {
   totalChannels: number;
@@ -286,6 +289,18 @@ async function copyChannelHistory(
       `Fetched ${messages.length} messages from ${discordChannel.name}`
     );
 
+    // Load image upload configuration
+    const imageUploadConfig = loadImageUploadConfig();
+    let fileUploader: any = null;
+    
+    if (imageUploadConfig.enabled) {
+      try {
+        fileUploader = createFileUploader();
+      } catch (error) {
+        npmlog.warn("Cloner", `Failed to initialize file uploader: ${error.message}`);
+      }
+    }
+
     // Send messages to Revolt
     for (const message of messages) {
       try {
@@ -295,19 +310,60 @@ async function copyChannelHistory(
         // Format message content
         let content = message.content || "";
         
-        // Add attachments as URLs
+        // Handle attachments with image upload support
+        const attachmentIds: string[] = [];
+        const failedAttachments = new Collection<string, Attachment>();
+        
         if (message.attachments.size > 0) {
-          message.attachments.forEach((attachment) => {
-            content += `\n${attachment.url}`;
+          for (const attachment of message.attachments.values()) {
+            if (attachment.contentType?.startsWith('image/') && fileUploader) {
+              try {
+                npmlog.info('Cloner', `📷 Uploading image: ${attachment.name}`);
+                
+                const uploadResult = await fileUploader.uploadDiscordImageToRevolt(
+                  attachment.url,
+                  attachment.name,
+                  attachment.contentType
+                );
+
+                if (uploadResult.success && uploadResult.fileId) {
+                  attachmentIds.push(uploadResult.fileId);
+                  npmlog.info('Cloner', `✅ Image uploaded for history: ${attachment.name}`);
+                } else {
+                  npmlog.warn('Cloner', `❌ Image upload failed: ${attachment.name} - ${uploadResult.error}`);
+                  // Fallback to URL if upload fails
+                  if (imageUploadConfig.fallbackToUrl) {
+                    failedAttachments.set(attachment.id, attachment);
+                  }
+                }
+                
+                // Rate limiting for uploads
+                await delay(500);
+              } catch (error) {
+                npmlog.warn('Cloner', `Image upload error for ${attachment.name}: ${error.message}`);
+                if (imageUploadConfig.fallbackToUrl) {
+                  failedAttachments.set(attachment.id, attachment);
+                }
+              }
+            } else {
+              // Non-image files or upload disabled: add to failed collection for URL fallback
+              failedAttachments.set(attachment.id, attachment);
+            }
+          }
+          
+          // Add failed attachments as URLs
+          failedAttachments.forEach((attachment) => {
+            content += `\n📎 ${attachment.name}: ${attachment.url}`;
           });
         }
 
-        // Skip empty messages
-        if (!content.trim()) continue;
+        // Skip empty messages with no content or attachments
+        if (!content.trim() && attachmentIds.length === 0) continue;
 
-        // Send to Revolt with masquerade
+        // Send to Revolt with masquerade and attachments
         await revoltChannel.sendMessage({
           content: content.substring(0, 2000), // Revolt's message limit
+          attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
           masquerade: {
             name: `${message.author.username}${
               message.author.discriminator !== "0"

@@ -22,6 +22,7 @@ import { checkWebhookPermissions } from "./util/permissions";
 import { truncate } from "./util/truncate";
 import { createFileUploader } from "./util/fileUpload";
 import { loadImageUploadConfig } from "./util/config";
+import { MappingModel } from "./models/Mapping";
 
 /**
  * This file contains code taking care of things from Discord to Revolt
@@ -373,9 +374,45 @@ export async function handleDiscordMessage(
         }
       }
 
-      const sentMessage = await revolt.channels
-        .get(target.revolt)
-        .sendMessage(messageObject);
+      // Get or fetch the Revolt channel
+      let revoltChannel = revolt.channels.get(target.revolt);
+      if (!revoltChannel) {
+        // Channel not in cache, fetch it from server
+        try {
+          revoltChannel = await revolt.channels.fetch(target.revolt);
+        } catch (fetchError) {
+          // Check if it's a 404 (channel doesn't exist)
+          if (fetchError.message.includes('404') || fetchError.message.includes('not found')) {
+            npmlog.warn("Discord", `Revolt channel ${target.revolt} no longer exists, removing stale mapping`);
+            
+            // Remove stale mapping from database
+            await MappingModel.destroy({ where: { revoltChannel: target.revolt } });
+            
+            // Remove from memory
+            const mappingIndex = Main.mappings.findIndex(m => m.revolt === target.revolt);
+            if (mappingIndex > -1) {
+              Main.mappings.splice(mappingIndex, 1);
+            }
+            
+            // Remove associated webhook
+            try {
+              const discordChannel = await discord.channels.fetch(message.channelId);
+              if (discordChannel instanceof TextChannel) {
+                await unregisterDiscordChannel(discordChannel, target);
+              }
+            } catch (webhookError) {
+              npmlog.warn("Discord", `Failed to clean up webhook: ${webhookError.message}`);
+            }
+            
+            npmlog.info("Discord", "Stale mapping cleaned up successfully");
+            return; // Skip sending this message
+          }
+          
+          throw new Error(`Failed to fetch Revolt channel ${target.revolt}: ${fetchError.message}`);
+        }
+      }
+      
+      const sentMessage = await revoltChannel.sendMessage(messageObject);
 
       // Save in cache
       Main.discordCache.push({
@@ -450,7 +487,17 @@ export async function handleDiscordMessageUpdate(
           }
         }
 
-        const channel = await revolt.channels.get(target.revolt);
+        // Get or fetch the Revolt channel
+        let channel = revolt.channels.get(target.revolt);
+        if (!channel) {
+          // Channel not in cache, fetch it from server
+          try {
+            channel = await revolt.channels.fetch(target.revolt);
+          } catch (fetchError) {
+            throw new Error(`Failed to fetch Revolt channel ${target.revolt}: ${fetchError.message}`);
+          }
+        }
+        
         const messageToEdit = await channel.fetchMessage(
           cachedMessage.createdMessage
         );

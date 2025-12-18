@@ -145,8 +145,12 @@ export async function cloneChannelStructure(
               description: discordChannel.topic || undefined,
             });
 
-            // Fetch the channel from client cache
+            // Fetch the channel from client cache or server
             revoltChannel = revolt.channels.get(channelData._id);
+            if (!revoltChannel) {
+              // Channel not in cache yet, fetch it from server
+              revoltChannel = await revolt.channels.fetch(channelData._id);
+            }
 
             npmlog.info(
               "Cloner",

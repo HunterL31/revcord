@@ -46,20 +46,24 @@ export default class UniversalExecutor {
     let revoltChannel = this.revolt.channels.get(revoltTarget);
 
     if (typeof revoltChannel === "undefined") {
-      // Revolt channel name was provided.
+      // Try to fetch by ID first
+      try {
+        revoltChannel = await this.revolt.channels.fetch(revoltTarget);
+        revoltChannelName = revoltChannel.name;
+      } catch {
+        // Revolt channel name was provided - search by name
+        let target: Channel;
+        this.revolt.channels.forEach((channel) => {
+          if (channel.name.toLowerCase() === revoltTarget.toLowerCase()) {
+            target = channel;
+          }
+        });
 
-      // Loop over channels
-      let target: Channel;
-      this.revolt.channels.forEach((channel) => {
-        if (channel.name.toLowerCase() === revoltTarget.toLowerCase()) {
-          target = channel;
+        if (!target) throw new ConnectionError("Revolt channel not found.");
+        else {
+          revoltTarget = target._id;
+          revoltChannelName = target.name;
         }
-      });
-
-      if (!target) throw new ConnectionError("Revolt channel not found.");
-      else {
-        revoltTarget = target._id;
-        revoltChannelName = target.name;
       }
     } else {
       // Revolt channel ID was provided - we're just grabbing the name.

@@ -20,6 +20,8 @@ import {
 import { RevcordEmbed } from "./util/embeds";
 import { checkWebhookPermissions } from "./util/permissions";
 import { truncate } from "./util/truncate";
+import { createFileUploader } from "./util/fileUpload";
+import { loadImageUploadConfig } from "./util/config";
 
 /**
  * This file contains code taking care of things from Discord to Revolt
@@ -264,9 +266,58 @@ export async function handleDiscordMessage(
       const sticker = message.stickers.first();
       let stickerUrl = sticker && sticker.url;
 
-      // Format message content (parse emojis, mentions, images etc.)
-      const messageString = formatMessage(
-        message.attachments,
+      // NEW: Handle image uploads to Revolt first
+      const imageUploadConfig = loadImageUploadConfig();
+      const attachmentIds: string[] = [];
+      const failedAttachments = new Collection<string, Attachment>();
+      let hasUploadErrors = false;
+
+      if (message.attachments.size > 0 && imageUploadConfig.enabled) {
+        try {
+          const fileUploader = createFileUploader();
+          
+          for (const attachment of message.attachments.values()) {
+            if (attachment.contentType?.startsWith('image/')) {
+              npmlog.info('Discord', `🖼️ Uploading image: ${attachment.name} (${(attachment.size / 1024 / 1024).toFixed(1)}MB)`);
+              
+              const uploadResult = await fileUploader.uploadDiscordImageToRevolt(
+                attachment.url,
+                attachment.name,
+                attachment.contentType
+              );
+
+              if (uploadResult.success && uploadResult.fileId) {
+                attachmentIds.push(uploadResult.fileId);
+                npmlog.info('Discord', `✅ Image uploaded: ${attachment.name} -> ${uploadResult.fileId}`);
+                // Successfully uploaded - don't add to failedAttachments
+              } else {
+                npmlog.warn('Discord', `❌ Image upload failed: ${attachment.name} - ${uploadResult.error}`);
+                hasUploadErrors = true;
+                
+                // Add failed uploads to collection if fallback enabled
+                if (imageUploadConfig.fallbackToUrl) {
+                  failedAttachments.set(attachment.id, attachment);
+                }
+              }
+            } else {
+              // Non-image files: always add to failed collection so URLs are shown
+              failedAttachments.set(attachment.id, attachment);
+            }
+          }
+        } catch (error) {
+          npmlog.error('Discord', 'Error during image upload process:', error);
+          // On error, add all attachments to failed collection
+          message.attachments.forEach((att) => failedAttachments.set(att.id, att));
+          hasUploadErrors = true;
+        }
+      } else {
+        // If upload disabled or no attachments, all attachments become URLs
+        message.attachments.forEach((att) => failedAttachments.set(att.id, att));
+      }
+
+      // Format message content (parse emojis, mentions, and only failed/non-image attachments)
+      let messageString = formatMessage(
+        failedAttachments,
         message.content,
         message.mentions,
         stickerUrl
@@ -277,6 +328,7 @@ export async function handleDiscordMessage(
       const messageObject = {
         content: truncate(messageString, 1984),
         masquerade: mask,
+        attachments: attachmentIds.length > 0 ? attachmentIds : undefined, // NEW: Add uploaded files
         replies: replyPing
           ? [
               {

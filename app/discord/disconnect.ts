@@ -11,21 +11,24 @@ export class DisconnectCommand implements DiscordCommand {
 
   async execute(interaction: CommandInteraction, executor: UniversalExecutor) {
     // Permission check
-    if (interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
-      try {
-        await executor.disconnect("discord", interaction.channelId);
-        await interaction.reply("Channel disconnected successfully.");
-      } catch (e) {
-        if (e instanceof ConnectionError) {
-          await interaction.reply("Error! " + e.message);
-        } else {
-          await interaction.reply("Something went very wrong. Check the logs.");
-          npmlog.error("Discord", "An error occurred while disconnecting channels");
-          npmlog.error("Discord", e);
-        }
-      }
-    } else {
+    if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
       await interaction.reply("Error! You don't have enough permissions.");
+      return;
+    }
+
+    await interaction.deferReply();
+
+    try {
+      await executor.disconnect("discord", interaction.channelId);
+      await interaction.editReply("Channel disconnected successfully.");
+    } catch (e) {
+      if (e instanceof ConnectionError) {
+        await interaction.editReply("Error! " + e.message);
+      } else {
+        await interaction.editReply("Something went very wrong. Check the logs.");
+        npmlog.error("Discord", "An error occurred while disconnecting channels");
+        npmlog.error("Discord", e);
+      }
     }
   }
 }

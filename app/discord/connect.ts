@@ -29,24 +29,27 @@ export class ConnectCommand implements DiscordCommand {
     }
 
     // Permission check
-    if (interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
-      try {
-        await executor.connect(interaction.channelId, target);
-        await interaction.reply("Channels are now connected!");
-      } catch (e) {
-        if (e instanceof ConnectionError) {
-          await interaction.reply("Error! " + e.message);
-        } else {
-          await interaction.reply("Something went very wrong. Check the logs.");
-          npmlog.error(
-            "Discord",
-            "An error occurred while connecting channels"
-          );
-          npmlog.error("Discord", e);
-        }
-      }
-    } else {
+    if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
       await interaction.reply("Error! You don't have enough permissions.");
+      return;
+    }
+
+    await interaction.deferReply();
+
+    try {
+      await executor.connect(interaction.channelId, target);
+      await interaction.editReply("Channels are now connected!");
+    } catch (e) {
+      if (e instanceof ConnectionError) {
+        await interaction.editReply("Error! " + e.message);
+      } else {
+        await interaction.editReply("Something went very wrong. Check the logs.");
+        npmlog.error(
+          "Discord",
+          "An error occurred while connecting channels"
+        );
+        npmlog.error("Discord", e);
+      }
     }
   }
 }

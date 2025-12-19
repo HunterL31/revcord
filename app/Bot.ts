@@ -52,7 +52,7 @@ export class Bot {
       },
     });
 
-    this.discord.once("ready", () => {
+    this.discord.once("ready", async () => {
       npmlog.info(
         "Discord",
         `Logged in as ${this.discord.user.username}#${this.discord.user.discriminator}`

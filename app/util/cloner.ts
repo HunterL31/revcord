@@ -7,6 +7,7 @@ import {
   ChannelType,
   GuildChannel,
   Attachment,
+  MessageReaction,
 } from "discord.js";
 import { Client as RevoltClient } from "revolt.js";
 import { Channel as RevoltChannel } from "revolt.js/dist/maps/Channels";
@@ -367,10 +368,11 @@ async function copyChannelHistory(
         // Send to Revolt with masquerade and attachments (with retry on 429)
         let retryCount = 0;
         const maxRetries = 5;
+        let sentRevoltMessage: RevoltMessage | null = null;
         
         while (retryCount <= maxRetries) {
           try {
-            await revoltChannel.sendMessage({
+            sentRevoltMessage = await revoltChannel.sendMessage({
               content: content.substring(0, 2000), // Revolt's message limit
               attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
               masquerade: {
@@ -393,6 +395,11 @@ async function copyChannelHistory(
               throw error; // Re-throw if not 429 or max retries exceeded
             }
           }
+        }
+
+        // Copy reactions from Discord message to Revolt message
+        if (sentRevoltMessage && message.reactions.cache.size > 0) {
+          await copyMessageReactions(message, sentRevoltMessage, revoltChannel._id);
         }
 
         copiedCount++;
@@ -419,6 +426,65 @@ async function copyChannelHistory(
   }
 
   return copiedCount;
+}
+
+/**
+ * Copies reactions from a Discord message to a Revolt message
+ */
+async function copyMessageReactions(
+  discordMessage: DiscordMessage,
+  revoltMessage: RevoltMessage,
+  revoltChannelId: string
+): Promise<void> {
+  try {
+    for (const [, reaction] of discordMessage.reactions.cache) {
+      const emoji = reaction.emoji;
+      let revoltEmoji: string | null = null;
+
+      if (emoji.id) {
+        // Custom Discord emoji - use emoji sync manager
+        if (Main.emojiSyncManager) {
+          const isAnimated = emoji.animated ?? false;
+          revoltEmoji = await Main.emojiSyncManager.syncEmoji(
+            emoji.id,
+            emoji.name ?? "emoji",
+            isAnimated,
+            revoltChannelId
+          );
+
+          if (!revoltEmoji) {
+            npmlog.warn(
+              "Cloner",
+              `Failed to sync custom emoji ${emoji.name} for reaction`
+            );
+            continue;
+          }
+        } else {
+          // No emoji sync manager - skip custom emojis
+          continue;
+        }
+      } else {
+        // Unicode emoji - use directly
+        revoltEmoji = emoji.name!;
+      }
+
+      // Add reaction to Revolt message
+      try {
+        await revoltMessage.react(revoltEmoji);
+        npmlog.info("Cloner", `Copied reaction ${emoji.name} to Revolt message`);
+        
+        // Small delay between reactions
+        await delay(50);
+      } catch (reactionError) {
+        npmlog.warn(
+          "Cloner",
+          `Failed to add reaction ${emoji.name}: ${reactionError.message}`
+        );
+      }
+    }
+  } catch (error) {
+    npmlog.warn("Cloner", `Failed to copy reactions: ${error.message}`);
+  }
 }
 
 /**

@@ -11,6 +11,11 @@ import {
   initiateDiscordChannel,
 } from "./discord";
 import {
+  handleDiscordReactionAdd,
+  handleDiscordReactionRemove,
+  handleRevoltReactionPacket,
+} from "./reactions";
+import {
   handleRevoltMessage,
   handleRevoltMessageDelete,
   handleRevoltMessageUpdate,
@@ -46,7 +51,9 @@ export class Bot {
         GatewayIntentBits.Guilds,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.GuildMessageReactions,
       ],
+      partials: [2], // Partials.Reaction - needed for reactions on uncached messages
       allowedMentions: {
         parse: [],
       },
@@ -159,6 +166,15 @@ export class Bot {
       handleDiscordMessageDelete(this.revolt, message.id);
     });
 
+    // Reaction mirroring: Discord -> Revolt
+    this.discord.on("messageReactionAdd", async (reaction, user) => {
+      handleDiscordReactionAdd(this.revolt, reaction, user);
+    });
+
+    this.discord.on("messageReactionRemove", async (reaction, user) => {
+      handleDiscordReactionRemove(this.revolt, reaction, user);
+    });
+
     this.discord.login(process.env.DISCORD_TOKEN);
   }
 
@@ -248,6 +264,11 @@ export class Bot {
 
     this.revolt.on("message/delete", async (id) => {
       handleRevoltMessageDelete(this.revolt, id);
+    });
+
+    // Reaction mirroring: Revolt -> Discord
+    this.revolt.on("packet", async (packet) => {
+      handleRevoltReactionPacket(this.discord, this.revolt, packet);
     });
 
     this.revolt.loginBot(process.env.REVOLT_TOKEN);

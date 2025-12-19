@@ -8,6 +8,7 @@ The bot now supports cloning entire Discord servers to Revolt! This powerful fea
 - 📋 **Clone** the channel structure to a Revolt server
 - 📜 **Copy** message history from Discord to Revolt
 - 🖼️ **Upload** Discord images natively to Revolt (no more broken links!)
+- 😀 **Sync** emoji reactions (including custom emojis!)
 - 🔗 **Bridge** channels automatically for real-time syncing
 
 ## Requirements
@@ -102,6 +103,7 @@ If enabled:
 - Copies them to the corresponding Revolt channel in chronological order
 - Preserves author information using masquerade
 - **Uploads images natively** to Revolt (if image uploads enabled)
+- **Copies message reactions** (including custom Discord emojis via emoji sync)
 - Non-image attachments included as URLs
 - Skips bot messages for cleaner history
 
@@ -184,7 +186,6 @@ The bot includes built-in rate limiting:
 - Only text channels are cloned (voice channels are skipped)
 - Channel categories are not directly recreated on Revolt (but channel names are preserved)
 - Embeds from regular users are not copied (Discord doesn't allow regular users to send embeds)
-- Message reactions are not copied
 - Bot messages are skipped during history copying for cleaner results
 - Maximum Discord message fetch is limited by Discord's API (typically 100 per request)
 

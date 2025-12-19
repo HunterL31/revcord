@@ -8,6 +8,13 @@ export interface ImageUploadConfig {
   fallbackToUrl: boolean;
 }
 
+export interface EmojiSyncConfig {
+  enabled: boolean;
+  maxSizeMB: number;
+  cacheExpiryDays: number;
+  fallbackToLink: boolean;
+}
+
 export function loadImageUploadConfig(): ImageUploadConfig {
   const config: ImageUploadConfig = {
     enabled: process.env.UPLOAD_IMAGES_TO_REVOLT === 'true',
@@ -37,6 +44,39 @@ export function loadImageUploadConfig(): ImageUploadConfig {
     npmlog.info('Config', `Fallback to URL: ${config.fallbackToUrl}`);
   } else {
     npmlog.info('Config', 'Image upload disabled - using URL fallback only');
+  }
+
+  return config;
+}
+
+export function loadEmojiSyncConfig(): EmojiSyncConfig {
+  const config: EmojiSyncConfig = {
+    enabled: process.env.SYNC_EMOJIS_TO_REVOLT !== 'false', // Enabled by default
+    maxSizeMB: parseInt(process.env.MAX_EMOJI_SIZE_MB || '5'),
+    cacheExpiryDays: parseInt(process.env.EMOJI_CACHE_EXPIRY_DAYS || '7'),
+    fallbackToLink: process.env.EMOJI_FALLBACK_TO_LINK !== 'false' // Enabled by default
+  };
+
+  // Validation
+  if (config.maxSizeMB > 20) {
+    npmlog.warn('Config', 'MAX_EMOJI_SIZE_MB is very large, consider lowering it');
+  }
+  
+  if (config.maxSizeMB < 1) {
+    npmlog.warn('Config', 'MAX_EMOJI_SIZE_MB is very small, setting to 1MB minimum');
+    config.maxSizeMB = 1;
+  }
+  
+  if (config.cacheExpiryDays < 1) {
+    npmlog.warn('Config', 'EMOJI_CACHE_EXPIRY_DAYS is too low, setting to 1 day minimum');
+    config.cacheExpiryDays = 1;
+  }
+
+  if (config.enabled) {
+    npmlog.info('Config', `Emoji sync enabled - Max: ${config.maxSizeMB}MB, Cache: ${config.cacheExpiryDays} days`);
+    npmlog.info('Config', `Fallback to link: ${config.fallbackToLink}`);
+  } else {
+    npmlog.info('Config', 'Emoji sync disabled - using link format only');
   }
 
   return config;

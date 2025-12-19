@@ -10,14 +10,22 @@ export interface EmojiCacheEntry {
   timestamp: number;
 }
 
-interface EmojiUploadResult {
-  success: boolean;
-  revoltEmojiId?: string;
-  error?: string;
+// Autumn upload response - returns file ID
+interface AutumnUploadResponse {
+  id: string;
 }
 
-interface RevoltEmojiUploadResponse {
+// Delta emoji creation response
+interface RevoltEmojiResponse {
   _id: string;
+  name: string;
+  parent: {
+    type: string;
+    id?: string;
+  };
+  creator_id: string;
+  animated?: boolean;
+  nsfw?: boolean;
 }
 
 export class EmojiSyncManager {
@@ -30,6 +38,7 @@ export class EmojiSyncManager {
   constructor(
     private revolt: RevoltClient,
     private autumnUrl: string,
+    private apiUrl: string,
     private botToken: string
   ) {
     this.emojiCache = new Map();
@@ -124,27 +133,26 @@ export class EmojiSyncManager {
   }
 
   /**
-   * Upload emoji to Revolt server
+   * Step 1: Upload emoji file to Autumn
    */
-  private async uploadEmojiToRevolt(
-    serverId: string,
+  private async uploadFileToAutumn(
     emojiName: string,
     imageBuffer: ArrayBuffer,
     contentType: string
-  ): Promise<RevoltEmojiUploadResponse | null> {
+  ): Promise<string | null> {
     try {
       const formData = new FormData();
       const uint8Array = new Uint8Array(imageBuffer);
+      const extension = contentType.split('/')[1] || 'png';
       const blob = new Blob([uint8Array], { type: contentType });
-      formData.append('name', emojiName);
-      formData.append('emoji', blob, `${emojiName}.${contentType.split('/')[1]}`);
+      formData.append('file', blob, `${emojiName}.${extension}`);
       
-      npmlog.info('EmojiSync', `Uploading emoji "${emojiName}" to Revolt server ${serverId}`);
+      npmlog.info('EmojiSync', `Uploading emoji file "${emojiName}" to Autumn`);
       
       const response = await fetch(
-        `${this.autumnUrl}/custom/emoji/${serverId}`,
+        `${this.autumnUrl}/emojis`,
         {
-          method: 'PUT',
+          method: 'POST',
           headers: {
             'x-bot-token': this.botToken,
           },
@@ -155,23 +163,98 @@ export class EmojiSyncManager {
       
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Unknown error');
-        npmlog.error('EmojiSync', `Failed to upload emoji: ${response.status} ${response.statusText} - ${errorText}`);
+        npmlog.error('EmojiSync', `Failed to upload emoji file to Autumn: ${response.status} ${response.statusText} - ${errorText}`);
         return null;
       }
       
-      const result = await response.json() as RevoltEmojiUploadResponse;
+      const result = await response.json() as AutumnUploadResponse;
       
-      if (!result._id) {
-        npmlog.error('EmojiSync', 'Upload response missing emoji ID');
+      if (!result.id) {
+        npmlog.error('EmojiSync', 'Autumn upload response missing file ID');
         return null;
       }
       
-      npmlog.info('EmojiSync', `✅ Successfully uploaded emoji "${emojiName}" -> ${result._id}`);
-      return result;
+      npmlog.info('EmojiSync', `✅ Uploaded emoji file to Autumn -> ${result.id}`);
+      return result.id;
     } catch (error) {
-      npmlog.error('EmojiSync', `Error uploading emoji to Revolt: ${error.message}`);
+      npmlog.error('EmojiSync', `Error uploading emoji file to Autumn: ${error.message}`);
       return null;
     }
+  }
+
+  /**
+   * Step 2: Create emoji in Delta API using the uploaded file ID
+   */
+  private async createEmojiInDelta(
+    fileId: string,
+    serverId: string,
+    emojiName: string
+  ): Promise<RevoltEmojiResponse | null> {
+    try {
+      npmlog.info('EmojiSync', `Creating emoji "${emojiName}" in server ${serverId} using file ${fileId}`);
+      
+      const response = await fetch(
+        `${this.apiUrl}/custom/emoji/${fileId}`,
+        {
+          method: 'PUT',
+          headers: {
+            'x-bot-token': this.botToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: emojiName,
+            parent: {
+              type: 'Server',
+              id: serverId
+            }
+          }),
+          signal: AbortSignal.timeout(this.UPLOAD_TIMEOUT_MS)
+        }
+      );
+      
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Unknown error');
+        npmlog.error('EmojiSync', `Failed to create emoji in Delta: ${response.status} ${response.statusText} - ${errorText}`);
+        
+        if (response.status === 403) {
+          npmlog.warn('EmojiSync', 'Permission denied. Bot may need ManageCustomisation permission on this server.');
+        }
+        
+        return null;
+      }
+      
+      const result = await response.json() as RevoltEmojiResponse;
+      
+      if (!result._id) {
+        npmlog.error('EmojiSync', 'Delta response missing emoji ID');
+        return null;
+      }
+      
+      npmlog.info('EmojiSync', `✅ Successfully created emoji "${emojiName}" -> ${result._id}`);
+      return result;
+    } catch (error) {
+      npmlog.error('EmojiSync', `Error creating emoji in Delta: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Upload emoji to Revolt server (two-step process)
+   */
+  private async uploadEmojiToRevolt(
+    serverId: string,
+    emojiName: string,
+    imageBuffer: ArrayBuffer,
+    contentType: string
+  ): Promise<RevoltEmojiResponse | null> {
+    // Step 1: Upload file to Autumn
+    const fileId = await this.uploadFileToAutumn(emojiName, imageBuffer, contentType);
+    if (!fileId) {
+      return null;
+    }
+
+    // Step 2: Create emoji in Delta using the file ID
+    return await this.createEmojiInDelta(fileId, serverId, emojiName);
   }
 
   /**
@@ -212,8 +295,8 @@ export class EmojiSyncManager {
       // Determine content type
       const contentType = isAnimated ? 'image/gif' : 'image/png';
       
-      // Sanitize emoji name (Revolt allows alphanumeric and underscores)
-      const sanitizedName = emojiName.replace(/[^a-zA-Z0-9_]/g, '_');
+      // Sanitize emoji name (Revolt allows lowercase alphanumeric and underscores)
+      const sanitizedName = emojiName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
       
       // Upload to Revolt
       const uploadResult = await this.uploadEmojiToRevolt(
@@ -272,11 +355,12 @@ export class EmojiSyncManager {
  */
 export function createEmojiSyncManager(revolt: RevoltClient): EmojiSyncManager {
   const autumnUrl = process.env.REVOLT_ATTACHMENT_URL || 'https://autumn.revolt.chat';
+  const apiUrl = process.env.API_URL || 'https://api.revolt.chat';
   const botToken = process.env.REVOLT_TOKEN || '';
   
   if (!botToken) {
     throw new Error('REVOLT_TOKEN is required for emoji syncing');
   }
   
-  return new EmojiSyncManager(revolt, autumnUrl, botToken);
+  return new EmojiSyncManager(revolt, autumnUrl, apiUrl, botToken);
 }

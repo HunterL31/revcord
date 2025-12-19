@@ -147,10 +147,16 @@ Send to Revolt with proper emoji
    - `https://cdn.discordapp.com/emojis/{id}.png` (static)
    - `https://cdn.discordapp.com/emojis/{id}.gif` (animated)
 
-2. **Revolt Autumn API** (Upload):
-   - `PUT /custom/emoji/{server_id}`
+2. **Revolt Autumn API** (File Upload):
+   - `POST /emojis`
    - Headers: `x-bot-token: {REVOLT_TOKEN}`
-   - Body: FormData with `name` and `emoji` file
+   - Body: FormData with `file` field
+   - Returns: `{ id: "file_id" }`
+
+3. **Revolt Delta API** (Emoji Creation):
+   - `PUT /custom/emoji/{file_id}`
+   - Headers: `x-bot-token: {REVOLT_TOKEN}`, `Content-Type: application/json`
+   - Body: `{ "name": "emoji_name", "parent": { "type": "Server", "id": "server_id" } }`
 
 ### Caching Strategy
 

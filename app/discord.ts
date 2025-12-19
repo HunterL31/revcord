@@ -36,7 +36,7 @@ import { MappingModel } from "./models/Mapping";
  * @param ping ID of the user to ping
  * @returns Formatted string
  */
-async function formatMessage(
+export async function formatMessage(
   attachments: Collection<string, Attachment>,
   content: string,
   mentions: MessageMentions,

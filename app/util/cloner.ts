@@ -13,7 +13,7 @@ import { Channel as RevoltChannel } from "revolt.js/dist/maps/Channels";
 import { Message as RevoltMessage } from "revolt.js/dist/maps/Messages";
 import npmlog from "npmlog";
 import { Main } from "../Main";
-import { initiateDiscordChannel } from "../discord";
+import { initiateDiscordChannel, formatMessage } from "../discord";
 import { MappingModel } from "../models/Mapping";
 import { createFileUploader } from "./fileUpload";
 import { loadImageUploadConfig } from "./config";
@@ -311,9 +311,6 @@ async function copyChannelHistory(
         // Skip bot messages for cleaner history
         if (message.author.bot) continue;
 
-        // Format message content
-        let content = message.content || "";
-        
         // Handle attachments with image upload support
         const attachmentIds: string[] = [];
         const failedAttachments = new Collection<string, Attachment>();
@@ -354,12 +351,15 @@ async function copyChannelHistory(
               failedAttachments.set(attachment.id, attachment);
             }
           }
-          
-          // Add failed attachments as URLs
-          failedAttachments.forEach((attachment) => {
-            content += `\n📎 ${attachment.name}: ${attachment.url}`;
-          });
         }
+
+        // Format message content with emoji syncing and failed attachments
+        const content = await formatMessage(
+          failedAttachments,
+          message.content || "",
+          message.mentions,
+          revoltChannel._id // Pass the revolt channel ID for emoji syncing
+        );
 
         // Skip empty messages with no content or attachments
         if (!content.trim() && attachmentIds.length === 0) continue;

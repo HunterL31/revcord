@@ -33,10 +33,11 @@ Discord message: "Hello <:wave:123456789> from Discord!"
 
 The bot detects the custom emoji pattern: `<:wave:123456789>` or `<a:wave:123456789>` (for animated)
 
-### 3. Download & Upload
+### 3. Download & Upload (Two-Step Process)
 
-- Downloads the emoji from: `https://cdn.discordapp.com/emojis/123456789.png`
-- Uploads to Revolt server via: `PUT /custom/emoji/{server_id}`
+1. Downloads the emoji from: `https://cdn.discordapp.com/emojis/123456789.png`
+2. Uploads file to Autumn: `POST /emojis` → returns `{ id: "file_id" }`
+3. Creates emoji in Delta: `PUT /custom/emoji/{file_id}` with server parent info
 
 ### 4. Message Transformation
 

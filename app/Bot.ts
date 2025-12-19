@@ -77,9 +77,13 @@ export class Bot {
       // Do not allow commands when using mappings.json mode.
       if (!this.usingJsonMappings) {
         // Register commands for each guild
-        this.discord.guilds.cache.forEach((guild) => {
-          registerSlashCommands(this.rest, this.discord, guild.id, this.commandsJson);
-        });
+        const guilds = Array.from(this.discord.guilds.cache.values());
+        await Promise.all(
+          guilds.map((guild) => registerSlashCommands(this.rest, this.discord, guild.id, this.commandsJson, false))
+        );
+        if (guilds.length > 0) {
+          npmlog.info("Discord", `Registered slash commands in ${guilds.length} guild(s)`);
+        }
       }
 
       // Create webhooks

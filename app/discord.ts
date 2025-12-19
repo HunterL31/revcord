@@ -21,7 +21,7 @@ import { RevcordEmbed } from "./util/embeds";
 import { checkWebhookPermissions } from "./util/permissions";
 import { truncate } from "./util/truncate";
 import { createFileUploader } from "./util/fileUpload";
-import { loadImageUploadConfig } from "./util/config";
+import { loadImageUploadConfig, loadEmojiSyncConfig } from "./util/config";
 import { MappingModel } from "./models/Mapping";
 
 /**
@@ -36,10 +36,11 @@ import { MappingModel } from "./models/Mapping";
  * @param ping ID of the user to ping
  * @returns Formatted string
  */
-function formatMessage(
+async function formatMessage(
   attachments: Collection<string, Attachment>,
   content: string,
   mentions: MessageMentions,
+  revoltChannelId?: string,
   stickerUrl?: string
 ) {
   let messageString = "";
@@ -47,7 +48,9 @@ function formatMessage(
   // Handle emojis
   const emojis = content.match(DiscordEmojiPattern);
   if (emojis) {
-    emojis.forEach((emoji, i) => {
+    // Process emojis sequentially to maintain order
+    for (let i = 0; i < emojis.length; i++) {
+      const emoji = emojis[i];
       const dissected = DiscordEmojiPattern.exec(emoji);
 
       // reset internal pointer... what is that even
@@ -56,21 +59,55 @@ function formatMessage(
       if (dissected !== null) {
         const emojiName = dissected.groups["name"];
         const emojiId = dissected.groups["id"];
+        const isAnimated = dissected[1] === "a:";
 
         if (emojiName && emojiId) {
-          let emojiUrl: string;
+          // Try to sync emoji to Revolt if emoji sync is enabled and channel ID is provided
+          let replaced = false;
+          const emojiSyncConfig = loadEmojiSyncConfig();
+          
+          if (emojiSyncConfig.enabled && Main.emojiSyncManager && revoltChannelId) {
+            try {
+              const revoltEmojiId = await Main.emojiSyncManager.syncEmoji(
+                emojiId,
+                emojiName,
+                isAnimated,
+                revoltChannelId
+              );
 
-          // Limit displayed emojis to 5 to reduce spam
-          if (i < 5) {
-            emojiUrl =
-              "https://cdn.discordapp.com/emojis/" +
-              emojiId +
-              ".webp?size=32&quality=lossless";
+              if (revoltEmojiId) {
+                // Successfully synced - use Revolt emoji syntax
+                content = content.replace(emoji, `:${revoltEmojiId}:`);
+                replaced = true;
+                npmlog.info(
+                  "Discord",
+                  `Synced emoji ${emojiName} (${emojiId}) -> :${revoltEmojiId}:`
+                );
+              }
+            } catch (error) {
+              npmlog.warn(
+                "Discord",
+                `Failed to sync emoji ${emojiName} (${emojiId}): ${error.message}`
+              );
+            }
           }
-          content = content.replace(emoji, `[:${emojiName}:](${emojiUrl})`);
+
+          // Fallback to link format if sync failed or is disabled
+          if (!replaced && emojiSyncConfig.fallbackToLink) {
+            let emojiUrl: string;
+
+            // Limit displayed emojis to 5 to reduce spam
+            if (i < 5) {
+              emojiUrl =
+                "https://cdn.discordapp.com/emojis/" +
+                emojiId +
+                ".webp?size=32&quality=lossless";
+            }
+            content = content.replace(emoji, `[:${emojiName}:](${emojiUrl})`);
+          }
         }
       }
-    });
+    }
   }
 
   // Handle pings
@@ -204,10 +241,11 @@ export async function handleDiscordMessage(
                 );
 
                 // Prepare reply embed
-                const formattedContent = formatMessage(
+                const formattedContent = await formatMessage(
                   referenced.attachments,
                   referenced.content,
-                  referenced.mentions
+                  referenced.mentions,
+                  target.revolt
                 );
 
                 replyEmbed = {
@@ -244,10 +282,11 @@ export async function handleDiscordMessage(
         const referenced = message.messageSnapshots.at(0);
 
         // Prepare reply embed
-        const formattedContent = formatMessage(
+        const formattedContent = await formatMessage(
           referenced.attachments,
           referenced.content,
-          referenced.mentions
+          referenced.mentions,
+          target.revolt
         );
 
         replyEmbed = {
@@ -317,10 +356,11 @@ export async function handleDiscordMessage(
       }
 
       // Format message content (parse emojis, mentions, and only failed/non-image attachments)
-      let messageString = formatMessage(
+      let messageString = await formatMessage(
         failedAttachments,
         message.content,
         message.mentions,
+        target.revolt,
         stickerUrl
       );
 
@@ -463,10 +503,11 @@ export async function handleDiscordMessageUpdate(
         const messageObject = {} as any;
 
         if (message.content.length > 0) {
-          messageObject.content = formatMessage(
+          messageObject.content = await formatMessage(
             message.attachments,
             message.content,
-            message.mentions
+            message.mentions,
+            target.revolt
           );
         }
 

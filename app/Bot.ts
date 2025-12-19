@@ -20,6 +20,7 @@ import { DiscordCommand, PartialDiscordMessage, RevoltCommand } from "./interfac
 import { slashCommands } from "./discord/commands";
 import UniversalExecutor from "./universalExecutor";
 import { revoltCommands } from "./revolt/commands";
+import { createEmojiSyncManager } from "./util/emojiSync";
 
 export class Bot {
   private discord: DiscordClient;
@@ -162,6 +163,15 @@ export class Bot {
 
     this.revolt.once("ready", () => {
       npmlog.info("Revolt", `Logged in as ${this.revolt.user.username}`);
+
+      // Initialize emoji sync manager
+      try {
+        Main.emojiSyncManager = createEmojiSyncManager(this.revolt);
+        npmlog.info("Revolt", "Emoji sync manager initialized");
+      } catch (error) {
+        npmlog.warn("Revolt", `Failed to initialize emoji sync manager: ${error.message}`);
+        npmlog.warn("Revolt", "Emoji syncing will be disabled");
+      }
 
       // Initialize revolt commands
       this.revoltCommands = new Collection();

@@ -13,7 +13,7 @@
 
 🔗 A bridge for Discord and [Revolt](https://revolt.chat) with easy setup through commands, written in TypeScript using [revolt.js](https://github.com/revoltchat/revolt.js).
 
-[Features](#features) | [Setup](#setup) | [Configuration](#configuration) | [Troubleshooting](#troubleshooting)
+[Features](#features) | [Setup](#setup) | [Configuration](#configuration) | [Emoji Syncing](#emoji-syncing) | [Troubleshooting](#troubleshooting)
 
 ## 📔 Features <a id="features"></a>
 
@@ -24,8 +24,12 @@
 - [x] Bridge embeds
 - [x] Bridge emoji[^1]
 - [x] Seamlessly display user information
+- [x] Clone entire Discord servers to Revolt
+- [x] Copy message history between platforms
+- [x] Sync Discord custom emojis to Revolt servers[^2]
 
 [^1]: Revolt to Discord works, but limited to 3 emojis displayed to stop bombing with links. Animated emojis from Revolt will convert to static due to limits on Revolt's image backend
+[^2]: Discord custom emojis are automatically downloaded and uploaded to the Revolt server as custom emojis with the same name, then used in messages
 
 ![Screenshot - Revolt](docs/discord.png) ![Screenshot - Discord](docs/revolt.png)
 
@@ -61,6 +65,27 @@ If you are running a self-hosted instance of Revolt, additionally set the `API_U
 ```
 API_URL = https://api.revolt.chat
 REVOLT_ATTACHMENT_URL = https://autumn.revolt.chat
+```
+
+### Optional Configuration
+
+You can customize the behavior of the bot with these optional environment variables:
+
+**Image Upload:**
+```
+UPLOAD_IMAGES_TO_REVOLT = true              # Enable/disable image upload to Revolt (default: false)
+MAX_IMAGE_SIZE_MB = 10                      # Maximum image size in MB (default: 10)
+SUPPORTED_IMAGE_FORMATS = jpeg,jpg,png,gif,webp  # Supported formats (default: jpeg,jpg,png,gif,webp)
+IMAGE_UPLOAD_TIMEOUT_MS = 30000             # Upload timeout in ms (default: 30000)
+FALLBACK_TO_URL_ON_ERROR = true             # Fallback to URL if upload fails (default: true)
+```
+
+**Emoji Sync:**
+```
+SYNC_EMOJIS_TO_REVOLT = true                # Enable/disable emoji syncing (default: true)
+MAX_EMOJI_SIZE_MB = 5                       # Maximum emoji size in MB (default: 5)
+EMOJI_CACHE_EXPIRY_DAYS = 7                 # Days to cache synced emojis (default: 7)
+EMOJI_FALLBACK_TO_LINK = true               # Fallback to link if sync fails (default: true)
 ```
 
 4. **Important!** Make sure to select the following permissions in URL Generator when making an invite for your bot (Your bot in Discord Developers -> `OAuth2` -> `URL Generator`) (or if you're lazy, just select `Administrator`) Note **applications.commands**!
@@ -168,6 +193,46 @@ You can toggle whether messages sent by bots should be forwarded. It's enabled b
 
 Use either `rc!bots` or `/bots`
 
+### Cloning an entire Discord server
+
+You can clone an entire Discord server structure to Revolt, including all channels and optionally message history!
+
+From **Discord**:
+
+```
+/clone <Revolt server ID> [copy_history: true/false] [max_messages: 100] [preview: true/false]
+```
+
+From **Revolt**:
+
+```
+rc!clone <Discord server ID> [--history] [--max=100] [--preview]
+```
+
+**Important notes:**
+- You need Administrator permissions on Discord or be the server owner on Revolt
+- The bot must be a member of both servers
+- Use `preview: true` or `--preview` to see what would be cloned without actually doing it
+- Copying message history can take a very long time (use `max_messages` to limit)
+- Channels will be automatically bridged after cloning
+- Rate limiting is applied to avoid overwhelming the APIs
+
+**Examples:**
+
+```
+# Preview what would be cloned (from Discord)
+/clone revolt_server_id preview:true
+
+# Clone channels without history (from Discord)
+/clone 01AB23BC34CD56DE78ZX90WWDB copy_history:false
+
+# Clone with last 50 messages per channel (from Revolt)
+rc!clone 123456789012345678 --history --max=50
+
+# Just preview (from Revolt)
+rc!clone 123456789012345678 --preview
+```
+
 ### with mappings.json (not recommended)
 
 #### This is not recommended!
@@ -187,6 +252,28 @@ Use either `rc!bots` or `/bots`
   }
 ]
 ```
+
+## 😀 Emoji Syncing <a id="emoji-syncing"></a>
+
+Discord custom emojis are automatically synced to Revolt! When a message contains Discord custom emojis like `<:emojiname:164859>`, the bot will:
+
+1. Download the emoji image from Discord
+2. Upload it to the Revolt server as a custom emoji
+3. Use the Revolt emoji in the bridged message
+
+This feature is **enabled by default** and requires no additional setup. The bot automatically caches synced emojis to avoid re-uploading.
+
+**Configuration options:**
+```env
+SYNC_EMOJIS_TO_REVOLT=true           # Enable/disable (default: true)
+MAX_EMOJI_SIZE_MB=5                  # Max emoji size (default: 5MB)
+EMOJI_CACHE_EXPIRY_DAYS=7            # Cache duration (default: 7 days)
+EMOJI_FALLBACK_TO_LINK=true          # Fallback behavior (default: true)
+```
+
+📖 For detailed information, see [EMOJI_SYNC_GUIDE.md](EMOJI_SYNC_GUIDE.md)
+
+**Important:** The bot needs **Manage Server** permission on Revolt to upload custom emojis.
 
 ## 🔥 Troubleshooting <a id="troubleshooting"></a>
 

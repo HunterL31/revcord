@@ -11,38 +11,41 @@ export class ListConnectionsCommand implements DiscordCommand {
 
   async execute(interaction: CommandInteraction, executor: universalExecutor) {
     // Permission check
-    if (interaction.memberPermissions.has(PermissionFlagsBits.ManageChannels)) {
-      try {
-        const connections = await executor.connections();
+    if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageChannels)) {
+      await interaction.reply("Error! You don't have enough permissions.");
+      return;
+    }
 
-        let replyEmbed = new EmbedBuilder()
-          .setAuthor({ name: "Revcord" })
-          .setColor("#5765f2")
-          .setTitle("Connected channels");
+    await interaction.deferReply();
 
-        if (connections.length) {
-          let desc = "";
-          connections.forEach((connection) => {
-            desc += `
+    try {
+      const connections = await executor.connections();
+
+      let replyEmbed = new EmbedBuilder()
+        .setAuthor({ name: "Revcord" })
+        .setColor("#5765f2")
+        .setTitle("Connected channels");
+
+      if (connections.length) {
+        let desc = "";
+        connections.forEach((connection) => {
+          desc += `
 \`\`\`#${connection.discord} => ${connection.revolt}
 Bots allowed: ${connection.allowBots ? "yes" : "no"}
 \`\`\``;
-          });
+        });
 
-          replyEmbed.setDescription(desc);
-        } else {
-          replyEmbed.setDescription("No connections found.");
-        }
-
-        await interaction.reply({ embeds: [replyEmbed] });
-      } catch (e) {
-        npmlog.error("Discord", "An error occurred while fetching connections");
-        npmlog.error("Discord", e);
-
-        await interaction.reply("An error happened. Check logs.");
+        replyEmbed.setDescription(desc);
+      } else {
+        replyEmbed.setDescription("No connections found.");
       }
-    } else {
-      await interaction.reply("Error! You don't have enough permissions.");
+
+      await interaction.editReply({ embeds: [replyEmbed] });
+    } catch (e) {
+      npmlog.error("Discord", "An error occurred while fetching connections");
+      npmlog.error("Discord", e);
+
+      await interaction.editReply("An error happened. Check logs.");
     }
   }
 }

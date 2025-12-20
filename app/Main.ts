@@ -7,6 +7,7 @@ import { Bot } from "./Bot";
 import { CachedMessage, Mapping } from "./interfaces";
 import { MappingModel } from "./models/Mapping";
 import getMappings from "./util/mappings";
+import { EmojiSyncManager } from "./util/emojiSync";
 
 export class Main {
   static mappings: Mapping[];
@@ -17,6 +18,9 @@ export class Main {
 
   /** Cache of messages sent by the bot from Revolt to Discord */
   static revoltCache: CachedMessage[];
+
+  /** Emoji sync manager for Discord to Revolt emoji syncing */
+  static emojiSyncManager: EmojiSyncManager | null = null;
 
   private bot: Bot;
 

@@ -20,6 +20,7 @@ import { DiscordCommand, PartialDiscordMessage, RevoltCommand } from "./interfac
 import { slashCommands } from "./discord/commands";
 import UniversalExecutor from "./universalExecutor";
 import { revoltCommands } from "./revolt/commands";
+import { createEmojiSyncManager } from "./util/emojiSync";
 
 export class Bot {
   private discord: DiscordClient;
@@ -51,7 +52,7 @@ export class Bot {
       },
     });
 
-    this.discord.once("ready", () => {
+    this.discord.once("ready", async () => {
       npmlog.info(
         "Discord",
         `Logged in as ${this.discord.user.username}#${this.discord.user.discriminator}`
@@ -76,9 +77,13 @@ export class Bot {
       // Do not allow commands when using mappings.json mode.
       if (!this.usingJsonMappings) {
         // Register commands for each guild
-        this.discord.guilds.cache.forEach((guild) => {
-          registerSlashCommands(this.rest, this.discord, guild.id, this.commandsJson);
-        });
+        const guilds = Array.from(this.discord.guilds.cache.values());
+        await Promise.all(
+          guilds.map((guild) => registerSlashCommands(this.rest, this.discord, guild.id, this.commandsJson, false))
+        );
+        if (guilds.length > 0) {
+          npmlog.info("Discord", `Registered slash commands in ${guilds.length} guild(s)`);
+        }
       }
 
       // Create webhooks
@@ -162,6 +167,15 @@ export class Bot {
 
     this.revolt.once("ready", () => {
       npmlog.info("Revolt", `Logged in as ${this.revolt.user.username}`);
+
+      // Initialize emoji sync manager
+      try {
+        Main.emojiSyncManager = createEmojiSyncManager(this.revolt);
+        npmlog.info("Revolt", "Emoji sync manager initialized");
+      } catch (error) {
+        npmlog.warn("Revolt", `Failed to initialize emoji sync manager: ${error.message}`);
+        npmlog.warn("Revolt", "Emoji syncing will be disabled");
+      }
 
       // Initialize revolt commands
       this.revoltCommands = new Collection();

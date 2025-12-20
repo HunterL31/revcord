@@ -21,29 +21,61 @@ The bot now supports cloning entire Discord servers to Revolt! This powerful fea
 
 ## Commands
 
-### Discord Command
+### Server Clone Commands
+
+#### Discord Command
 
 ```
-/clone <revolt_server_id> [copy_history: true/false] [max_messages: 100] [preview: true/false]
+/clone <revolt_server_id> [copy_history: true/false] [max_messages: 100] [full: true/false] [preview: true/false]
 ```
 
 **Parameters:**
 - `revolt_server_id` (required): The ID of the target Revolt server
 - `copy_history` (optional): Whether to copy message history (default: false)
-- `max_messages` (optional): Maximum messages to copy per channel (default: 100)
+- `max_messages` (optional): Maximum messages to copy per channel (default: 100, ignored if full is true)
+- `full` (optional): Copy ENTIRE message history - no limit (WARNING: Can take hours!)
 - `preview` (optional): Preview what would be cloned without actually cloning (default: false)
 
 ### Revolt Command
 
 ```
-rc!clone <discord_server_id> [--history] [--max=100] [--preview]
+rc!clone <discord_server_id> [--history] [--full] [--max=100] [--preview]
 ```
 
 **Parameters:**
 - `discord_server_id` (required): The ID of the source Discord server
 - `--history` (optional): Copy message history
-- `--max=N` (optional): Maximum messages to copy per channel (default: 100)
+- `--full` (optional): Copy ENTIRE message history - no limit (WARNING: Can take hours!)
+- `--max=N` (optional): Maximum messages to copy per channel (default: 100, ignored if --full)
 - `--preview` (optional): Preview what would be cloned without actually cloning
+
+### Single Channel Clone Commands
+
+For cloning just one channel with history:
+
+#### Discord Command
+
+```
+/clone_channel <revolt_channel_id> [copy_history: true/false] [max_messages: 100] [full: true/false]
+```
+
+**Parameters:**
+- `revolt_channel_id` (required): The ID of the target Revolt channel
+- `copy_history` (optional): Whether to copy message history (default: false)
+- `max_messages` (optional): Maximum messages to copy (default: 100, ignored if full is true)
+- `full` (optional): Copy ENTIRE message history - no limit
+
+#### Revolt Command
+
+```
+rc!clone_channel <discord_channel_id> [--history] [--full] [--max=100]
+```
+
+**Parameters:**
+- `discord_channel_id` (required): The ID of the source Discord channel
+- `--history` (optional): Copy message history
+- `--full` (optional): Copy ENTIRE message history - no limit
+- `--max=N` (optional): Maximum messages to copy (default: 100, ignored if --full)
 
 ## Image Upload Configuration
 
@@ -153,7 +185,21 @@ rc!clone 123456789012345678 --history --max=50
 
 ### Full Clone
 
-Clone everything with maximum history (Warning: Very slow!):
+Clone everything with complete message history (Warning: Can take hours!):
+
+**From Discord:**
+```
+/clone 01AB23BC34CD56DE copy_history:true full:true
+```
+
+**From Revolt:**
+```
+rc!clone 123456789012345678 --history --full
+```
+
+### Large History Clone (Limited)
+
+Clone with a large but limited history:
 
 **From Discord:**
 ```
@@ -163,6 +209,34 @@ Clone everything with maximum history (Warning: Very slow!):
 **From Revolt:**
 ```
 rc!clone 123456789012345678 --history --max=1000
+```
+
+### Single Channel Clone
+
+Clone just one channel with full history:
+
+**From Discord (run in the channel you want to clone):**
+```
+/clone_channel 01AB23BC34CD56DE78ZX copy_history:true full:true
+```
+
+**From Revolt (run in the target channel):**
+```
+rc!clone_channel 123456789012345678 --history --full
+```
+
+### Single Channel - Quick Connect with History
+
+Connect a channel and copy the last 50 messages:
+
+**From Discord:**
+```
+/clone_channel 01AB23BC34CD56DE78ZX copy_history:true max_messages:50
+```
+
+**From Revolt:**
+```
+rc!clone_channel 123456789012345678 --history --max=50
 ```
 
 ## Important Notes

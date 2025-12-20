@@ -519,3 +519,351 @@ export async function getCloneSummary(
   
   return summary;
 }
+
+export interface SingleChannelCloneOptions {
+  discordChannelId: string;
+  revoltChannelId: string;
+  copyHistory: boolean;
+  maxMessages: number;
+}
+
+export interface SingleChannelCloneProgress {
+  copiedMessages: number;
+  copiedReactions: number;
+}
+
+export interface SingleChannelCloneResult {
+  discordChannelName: string;
+  revoltChannelName: string;
+  copiedMessages: number;
+  copiedReactions: number;
+  errors: string[];
+}
+
+/**
+ * Clone a single Discord channel to a Revolt channel
+ */
+export async function cloneSingleChannel(
+  discord: DiscordClient,
+  revolt: RevoltClient,
+  options: SingleChannelCloneOptions,
+  progressCallback?: (progress: SingleChannelCloneProgress) => void
+): Promise<SingleChannelCloneResult> {
+  const result: SingleChannelCloneResult = {
+    discordChannelName: "",
+    revoltChannelName: "",
+    copiedMessages: 0,
+    copiedReactions: 0,
+    errors: [],
+  };
+
+  try {
+    // Fetch Discord channel
+    const discordChannel = await discord.channels.fetch(options.discordChannelId);
+    if (!(discordChannel instanceof TextChannel)) {
+      throw new Error("Discord channel not found or is not a text channel");
+    }
+    result.discordChannelName = `#${discordChannel.name}`;
+
+    // Fetch Revolt channel
+    let revoltChannel = revolt.channels.get(options.revoltChannelId);
+    if (!revoltChannel) {
+      revoltChannel = await revolt.channels.fetch(options.revoltChannelId);
+    }
+    if (!revoltChannel) {
+      throw new Error("Revolt channel not found");
+    }
+    result.revoltChannelName = revoltChannel.name || options.revoltChannelId;
+
+    npmlog.info(
+      "Cloner",
+      `Cloning single channel: ${discordChannel.name} -> ${revoltChannel.name}`
+    );
+
+    // Check if mapping already exists
+    const existingMapping = Main.mappings.find(
+      (mapping) =>
+        mapping.discord === discordChannel.id ||
+        mapping.revolt === revoltChannel._id
+    );
+
+    if (!existingMapping) {
+      const mapping = {
+        discord: discordChannel.id,
+        revolt: revoltChannel._id,
+        allowBots: true,
+      };
+
+      // Setup webhook
+      await initiateDiscordChannel(discordChannel, mapping);
+
+      // Save to database
+      await MappingModel.create({
+        discordChannel: discordChannel.id,
+        revoltChannel: revoltChannel._id,
+        discordChannelName: discordChannel.name,
+        revoltChannelName: revoltChannel.name,
+        allowBots: true,
+      });
+
+      // Add to memory
+      Main.mappings.push(mapping);
+
+      npmlog.info(
+        "Cloner",
+        `Connected ${discordChannel.name} <-> ${revoltChannel.name}`
+      );
+    } else {
+      npmlog.info("Cloner", "Channel mapping already exists");
+    }
+
+    // Copy message history if requested
+    if (options.copyHistory) {
+      const { messages: copiedMessages, reactions: copiedReactions } = 
+        await copySingleChannelHistory(
+          discordChannel,
+          revoltChannel,
+          revolt,
+          options.maxMessages,
+          progressCallback
+        );
+      result.copiedMessages = copiedMessages;
+      result.copiedReactions = copiedReactions;
+    }
+  } catch (error) {
+    npmlog.error("Cloner", `Failed to clone channel: ${error.message}`);
+    result.errors.push(error.message);
+  }
+
+  return result;
+}
+
+/**
+ * Copy message history for a single channel with progress callback
+ */
+async function copySingleChannelHistory(
+  discordChannel: TextChannel,
+  revoltChannel: RevoltChannel,
+  revolt: RevoltClient,
+  maxMessages: number,
+  progressCallback?: (progress: SingleChannelCloneProgress) => void
+): Promise<{ messages: number; reactions: number }> {
+  npmlog.info(
+    "Cloner",
+    `Copying message history for ${discordChannel.name}...`
+  );
+
+  let copiedMessages = 0;
+  let copiedReactions = 0;
+
+  try {
+    // Fetch messages from Discord
+    const messages: DiscordMessage[] = [];
+    let lastId: string | undefined;
+    let fetchCount = 0;
+    const batchSize = 100;
+
+    while (fetchCount < maxMessages) {
+      const fetchLimit = Math.min(batchSize, maxMessages - fetchCount);
+      const batch = await discordChannel.messages.fetch({
+        limit: fetchLimit,
+        before: lastId,
+      });
+
+      if (batch.size === 0) break;
+
+      messages.push(...batch.values());
+      fetchCount += batch.size;
+      lastId = batch.last()?.id;
+
+      await delay(120);
+    }
+
+    // Reverse for chronological order
+    messages.reverse();
+
+    npmlog.info(
+      "Cloner",
+      `Fetched ${messages.length} messages from ${discordChannel.name}`
+    );
+
+    // Load image upload configuration
+    const imageUploadConfig = loadImageUploadConfig();
+    let fileUploader: any = null;
+
+    if (imageUploadConfig.enabled) {
+      try {
+        fileUploader = createFileUploader();
+      } catch (error) {
+        npmlog.warn("Cloner", `Failed to initialize file uploader: ${error.message}`);
+      }
+    }
+
+    // Send messages to Revolt
+    for (const message of messages) {
+      try {
+        if (message.author.bot) continue;
+
+        // Handle attachments
+        const attachmentIds: string[] = [];
+        const failedAttachments = new Collection<string, Attachment>();
+
+        if (message.attachments.size > 0) {
+          for (const attachment of message.attachments.values()) {
+            if (attachment.contentType?.startsWith('image/') && fileUploader) {
+              try {
+                const uploadResult = await fileUploader.uploadDiscordImageToRevolt(
+                  attachment.url,
+                  attachment.name,
+                  attachment.contentType
+                );
+
+                if (uploadResult.success && uploadResult.fileId) {
+                  attachmentIds.push(uploadResult.fileId);
+                } else if (imageUploadConfig.fallbackToUrl) {
+                  failedAttachments.set(attachment.id, attachment);
+                }
+
+                await delay(200);
+              } catch (error) {
+                if (imageUploadConfig.fallbackToUrl) {
+                  failedAttachments.set(attachment.id, attachment);
+                }
+              }
+            } else {
+              failedAttachments.set(attachment.id, attachment);
+            }
+          }
+        }
+
+        // Format message
+        const content = await formatMessage(
+          failedAttachments,
+          message.content || "",
+          message.mentions,
+          revoltChannel._id
+        );
+
+        if (!content.trim() && attachmentIds.length === 0) continue;
+
+        // Send to Revolt with retry
+        let retryCount = 0;
+        const maxRetries = 5;
+        let sentRevoltMessage: RevoltMessage | null = null;
+
+        while (retryCount <= maxRetries) {
+          try {
+            sentRevoltMessage = await revoltChannel.sendMessage({
+              content: content.substring(0, 2000),
+              attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
+              masquerade: {
+                name: `${message.author.username}${
+                  message.author.discriminator !== "0"
+                    ? "#" + message.author.discriminator
+                    : ""
+                }`,
+                avatar: message.author.avatarURL() || undefined,
+              },
+            } as any);
+            break;
+          } catch (error) {
+            if (error.message.includes('429') && retryCount < maxRetries) {
+              retryCount++;
+              const backoffDelay = 1000 * retryCount;
+              await delay(backoffDelay);
+            } else {
+              throw error;
+            }
+          }
+        }
+
+        // Copy reactions
+        if (sentRevoltMessage && message.reactions.cache.size > 0) {
+          const reactionCount = await copyMessageReactionsWithCount(
+            message,
+            sentRevoltMessage,
+            revoltChannel._id
+          );
+          copiedReactions += reactionCount;
+        }
+
+        copiedMessages++;
+
+        // Progress callback
+        if (progressCallback) {
+          progressCallback({ copiedMessages, copiedReactions });
+        }
+
+        await delay(100);
+      } catch (error) {
+        npmlog.warn(
+          "Cloner",
+          `Failed to copy message ${message.id}: ${error.message}`
+        );
+      }
+    }
+
+    npmlog.info(
+      "Cloner",
+      `Copied ${copiedMessages} messages and ${copiedReactions} reactions to ${revoltChannel.name}`
+    );
+  } catch (error) {
+    npmlog.error(
+      "Cloner",
+      `Failed to copy history for ${discordChannel.name}: ${error.message}`
+    );
+  }
+
+  return { messages: copiedMessages, reactions: copiedReactions };
+}
+
+/**
+ * Copy reactions and return count
+ */
+async function copyMessageReactionsWithCount(
+  discordMessage: DiscordMessage,
+  revoltMessage: RevoltMessage,
+  revoltChannelId: string
+): Promise<number> {
+  let count = 0;
+  
+  try {
+    for (const [, reaction] of discordMessage.reactions.cache) {
+      const emoji = reaction.emoji;
+      let revoltEmoji: string | null = null;
+
+      if (emoji.id) {
+        if (Main.emojiSyncManager) {
+          const isAnimated = emoji.animated ?? false;
+          revoltEmoji = await Main.emojiSyncManager.syncEmoji(
+            emoji.id,
+            emoji.name ?? "emoji",
+            isAnimated,
+            revoltChannelId
+          );
+
+          if (!revoltEmoji) continue;
+        } else {
+          continue;
+        }
+      } else {
+        revoltEmoji = emoji.name!;
+      }
+
+      try {
+        await revoltMessage.react(revoltEmoji);
+        count++;
+        await delay(50);
+      } catch (reactionError) {
+        npmlog.warn(
+          "Cloner",
+          `Failed to add reaction ${emoji.name}: ${reactionError.message}`
+        );
+      }
+    }
+  } catch (error) {
+    npmlog.warn("Cloner", `Failed to copy reactions: ${error.message}`);
+  }
+
+  return count;
+}

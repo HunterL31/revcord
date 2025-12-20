@@ -24,7 +24,13 @@ export class CloneCommand implements DiscordCommand {
     .addIntegerOption((option) =>
       option
         .setName("max_messages")
-        .setDescription("Maximum messages to copy per channel (default: 100)")
+        .setDescription("Maximum messages to copy per channel (default: 100, ignored if full is true)")
+        .setRequired(false)
+    )
+    .addBooleanOption((option) =>
+      option
+        .setName("full")
+        .setDescription("Copy ENTIRE message history (WARNING: Can take hours for large servers!)")
         .setRequired(false)
     )
     .addBooleanOption((option) =>
@@ -46,7 +52,8 @@ export class CloneCommand implements DiscordCommand {
 
     const revoltServerId = interaction.options.get("revolt_server_id")?.value as string;
     const copyHistory = (interaction.options.get("copy_history")?.value as boolean) || false;
-    const maxMessages = (interaction.options.get("max_messages")?.value as number) || 100;
+    const full = (interaction.options.get("full")?.value as boolean) || false;
+    const maxMessages = full ? Infinity : ((interaction.options.get("max_messages")?.value as number) || 100);
     const preview = (interaction.options.get("preview")?.value as boolean) || false;
 
     if (!revoltServerId) {

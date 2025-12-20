@@ -8,7 +8,7 @@ export class CloneCommand implements RevoltCommand {
   data = {
     name: "clone",
     description: "Clone a Discord server structure to this Revolt server",
-    usage: "rc!clone <Discord server ID> [--history] [--max=100] [--preview]",
+    usage: "rc!clone <Discord server ID> [--history] [--full] [--max=100] [--preview]",
   };
 
   async execute(
@@ -28,20 +28,25 @@ export class CloneCommand implements RevoltCommand {
     if (!discordServerId) {
       await message.reply(
         "Error! You must provide a Discord server ID.\n" +
-        "Usage: `rc!clone <Discord server ID> [--history] [--max=100] [--preview]`"
+        "Usage: `rc!clone <Discord server ID> [--history] [--full] [--max=100] [--preview]`"
       );
       return;
     }
 
     const revoltServerId = message.channel.server_id;
     const copyHistory = argParts.includes("--history");
+    const full = argParts.includes("--full");
     const preview = argParts.includes("--preview");
     
-    // Parse max messages
-    let maxMessages = 100;
-    const maxArg = argParts.find(arg => arg.startsWith("--max="));
-    if (maxArg) {
-      maxMessages = parseInt(maxArg.split("=")[1]) || 100;
+    // Parse max messages (ignored if --full is specified)
+    let maxMessages: number = 100;
+    if (full) {
+      maxMessages = Infinity;
+    } else {
+      const maxArg = argParts.find(arg => arg.startsWith("--max="));
+      if (maxArg) {
+        maxMessages = parseInt(maxArg.split("=")[1]) || 100;
+      }
     }
 
     // Preview mode

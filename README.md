@@ -206,7 +206,7 @@ From **Discord**:
 From **Revolt**:
 
 ```
-rc!clone <Discord server ID> [--history] [--max=100] [--preview]
+rc!clone <Discord server ID> [--history] [--full] [--max=100] [--preview]
 ```
 
 **Important notes:**
